@@ -27,6 +27,9 @@ import os.path
 import shutil
 import sys
 import unittest
+import platform
+
+from shutil import copyfile
 
 sys.path.insert(1, os.path.abspath(os.path.join(os.path.dirname(__file__), '../lib')))
 sys.path.insert(1, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -37,6 +40,8 @@ from sickbeard.name_cache import addNameToCache
 from sickbeard.postProcessor import PostProcessor
 from sickbeard import processTV
 from sickbeard.tv import TVEpisode, TVShow
+
+import rarfile
 
 import tests.test_lib as test
 
@@ -159,36 +164,28 @@ class ListAssociatedFiles(unittest.TestCase):
         self.assertEqual(out_list, associated_files)
 
 
-class ProcessTVTests(unittest.TestCase):
+class ProcessTVTests(test.SickbeardTestPostProcessorCase):
     """
     Test processTV
     """
-    def setUp(self):
-        os.makedirs('pp_tests/delete_me')
-        self.file_hello = os.path.join('pp_tests', "hello.txt")
-        with open(self.file_hello, "w") as file:
-            file.write("Hello World!")
-            file.close()
-        self.file_world = os.path.join('pp_tests/delete_me', "world.txt")
-        with open(self.file_world, "w") as file:
-            file.write("World, Hello!")
-            file.close()
-
-    def tearDown(self):
-        shutil.rmtree('pp_tests')
-
     def test_delete_folder(self):
         """
         Test delete_folder
         """
-        self.assertFalse(processTV.delete_folder(self.file_world))
-        self.assertFalse(processTV.delete_folder('pp_tests/delete_me'))
+        os.makedirs('pp_tests/delete_me')
+        file_world = os.path.join('pp_tests/delete_me', 'world.txt')
+        with open(file_world, b'w') as file:
+            file.write('World, Hello!')
+
+        self.assertFalse(processTV.delete_folder(file_world)) # not a folder
+        self.assertFalse(processTV.delete_folder('pp_tests/delete_me')) # not empty
         sickbeard.TV_DOWNLOAD_DIR = os.path.abspath('pp_tests/delete_me')
-        self.assertFalse(processTV.delete_folder('pp_tests/delete_me'))
+        self.assertFalse(processTV.delete_folder('pp_tests/delete_me')) # is tv download dir
         sickbeard.TV_DOWNLOAD_DIR = ''
         self.assertTrue(processTV.delete_folder('pp_tests/delete_me', False))
-        os.makedirs('pp_tests/delete_me')
-        self.assertTrue(processTV.delete_folder('pp_tests/delete_me'))
+        # os.makedirs('pp_tests/delete_me')
+        # self.assertTrue(processTV.delete_folder('pp_tests/delete_me'))
+        shutil.rmtree('pp_tests')
 
     def test_delete_files(self):
         """
@@ -197,11 +194,17 @@ class ProcessTVTests(unittest.TestCase):
         result = processTV.ProcessResult()
         result.result = False
 
-        self.assertIsNone(processTV.delete_files('pp_tests/', ['somefile.txt'], result, force=False))
-        processTV.delete_files('pp_tests/', ['hello.txt'], result, force=True)
-        self.assertFalse(os.path.isfile(self.file_hello))
+        os.makedirs('pp_tests')
+        file_hello = os.path.join('pp_tests', 'hello.txt')
+        with open(file_hello, b'w') as file:
+            file.write('Hello World!')
 
-        #TODO: Test chmod, OSError exceptions (?)
+        self.assertIsNone(processTV.delete_files('pp_tests', ['somefile.txt'], result, force=False))
+        processTV.delete_files('pp_tests', [os.path.basename(file_hello)], result, force=True)
+        self.assertFalse(os.path.isfile(file_hello))
+        shutil.rmtree('pp_tests')
+
+        # TODO: Test chmod, OSError exceptions (?)
 
     def test_log_helper(self):
         """
@@ -223,12 +226,24 @@ class ProcessTVTests(unittest.TestCase):
         """
         pass
 
-    @unittest.skip('Not yet implemented')
     def test_unpack(self):
         """
         Test unpack
         """
-        pass
+        result = processTV.ProcessResult()
+
+        here = os.path.dirname(__file__)
+        sickbeard.UNPACK = 1
+        sickbeard.TV_DOWNLOAD_DIR = os.path.join(here, 'Downloads')
+
+        sample_file = os.path.join(here, 'PostProcessing', 'Sample.rar')
+        rarfile.UNRAR_TOOL = ('unrar', os.path.join(here, 'PostProcessing', 'unrar.exe'))[platform.system() == 'Windows']
+        rar_filename = 'Sample.rar'
+        copyfile(sample_file, os.path.join(sickbeard.TV_DOWNLOAD_DIR, rar_filename))
+        extracted_folder = os.path.join(sickbeard.TV_DOWNLOAD_DIR, rar_filename.rsplit('.')[0])
+
+        processTV.unpack(sickbeard.TV_DOWNLOAD_DIR, rar_filename, True, result)
+        self.assertEqual(result.current_extracted_dir, extracted_folder)
 
     @unittest.skip('Not yet implemented')
     def test_already_processed(self):
